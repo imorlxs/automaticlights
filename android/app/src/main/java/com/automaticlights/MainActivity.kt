@@ -177,7 +177,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { binding.tvLight.text = "Light: server unreachable" }
             }
             override fun onResponse(call: Call, response: Response) {
-                val text = response.body?.string() ?: return also { response.close() }
+                val text = response.body?.string() ?: return response.close()
                 response.close()
                 runOnUiThread { updateStatusUi(JSONObject(text)) }
             }

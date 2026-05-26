@@ -2,3 +2,8 @@
 .venv/*
 esp32/.pio/*
 rpi/__pycache__/*
+android/.gradle/*
+android/app/build/*
+android/.idea/*
+android/.vscode/*
+android/local.properties
