@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automatic Lights</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #111; color: #eee; display: flex; flex-direction: column; align-items: center; padding: 2rem; gap: 1.5rem; }
+    h1 { font-size: 1.6rem; }
+    .card { background: #1e1e1e; border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 380px; }
+    .row { display: flex; justify-content: space-between; margin: 0.4rem 0; font-size: 0.95rem; }
+    .val { font-weight: 600; }
+    .on  { color: #f5c518; }
+    .off { color: #666; }
+    .btn-row { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; }
+    button { padding: 0.7rem 2rem; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+    #btn-on  { background: #f5c518; color: #111; }
+    #btn-off { background: #333; color: #eee; }
+    #msg { font-size: 0.85rem; color: #f88; min-height: 1.2em; text-align: center; }
+    .bulb { font-size: 3rem; text-align: center; margin-bottom: 0.5rem; }
+    input[type=text] { background: #2a2a2a; border: 1px solid #444; color: #eee; padding: 0.5rem; border-radius: 6px; flex: 1; }
+    .cfg-row { display: flex; gap: 0.5rem; }
+    #btn-cfg { padding: 0.5rem 1rem; background: #555; border: none; border-radius: 6px; color: #eee; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Automatic Lights</h1>
+
+  <div class="card">
+    <div class="bulb" id="bulb">💡</div>
+    <div class="row"><span>Light</span>    <span class="val" id="s-light">—</span></div>
+    <div class="row"><span>Door</span>     <span class="val" id="s-door">—</span></div>
+    <div class="row"><span>Presence</span><span class="val" id="s-pres">—</span></div>
+    <div class="row"><span>Users in room</span><span class="val" id="s-n">—</span></div>
+    <div class="row"><span>Lux</span>     <span class="val" id="s-lux">—</span></div>
+    <div class="row"><span>State</span>   <span class="val" id="s-fsm">—</span></div>
+    <div class="row"><span>Last user</span><span class="val" id="s-user">—</span></div>
+    <div class="btn-row">
+      <button id="btn-on">Turn ON</button>
+      <button id="btn-off">Turn OFF</button>
+    </div>
+    <p id="msg"></p>
+  </div>
+
+  <div class="card">
+    <p style="margin-bottom:0.6rem;font-size:0.9rem;">Register your name (used for welcome message)</p>
+    <div class="cfg-row">
+      <input type="text" id="inp-name" placeholder="Your name" />
+      <button id="btn-cfg">Save</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    async function fetchState() {
+      try {
+        const r = await fetch('/api/state');
+        const d = await r.json();
+        $('s-light').textContent = d.light;
+        $('s-light').className = 'val ' + (d.light === 'ON' ? 'on' : 'off');
+        $('bulb').style.filter = d.light === 'ON' ? 'drop-shadow(0 0 12px #f5c518)' : 'grayscale(1) opacity(0.3)';
+        $('s-door').textContent = d.door;
+        $('s-pres').textContent = d.presence;
+        $('s-n').textContent = d.N;
+        $('s-lux').textContent = d.lux.toFixed(1) + ' lux';
+        $('s-fsm').textContent = d.fsm_state;
+        $('s-user').textContent = d.lastUser ?? '—';
+      } catch {}
+    }
+
+    async function cmd(path) {
+      $('msg').textContent = '';
+      try {
+        const r = await fetch(path, { method: 'POST' });
+        if (!r.ok) {
+          const d = await r.json();
+          $('msg').textContent = d.detail ?? 'Error';
+        } else {
+          await fetchState();
+        }
+      } catch { $('msg').textContent = 'Connection error'; }
+    }
+
+    $('btn-on').addEventListener('click',  () => cmd('/api/light/on'));
+    $('btn-off').addEventListener('click', () => cmd('/api/light/off'));
+
+    $('btn-cfg').addEventListener('click', async () => {
+      const name = $('inp-name').value.trim();
+      if (!name) return;
+      await fetch('/api/user/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      $('inp-name').value = '';
+      $('msg').textContent = `Registered: ${name}`;
+    });
+
+    fetchState();
+    setInterval(fetchState, 3000); // poll every 3s (within the 4s requirement)
+  </script>
+</body>
+</html>
