@@ -1,0 +1,4 @@
+.claude/*
+.venv/*
+esp32/.pio/*
+rpi/__pycache__/*
