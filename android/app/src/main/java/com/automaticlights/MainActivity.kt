@@ -1,6 +1,8 @@
 package com.automaticlights
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -17,6 +19,7 @@ import android.os.ParcelUuid
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.automaticlights.databinding.ActivityMainBinding
 import okhttp3.*
@@ -28,11 +31,14 @@ import java.io.IOException
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        private const val BLE_UUID          = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+        private const val BLE_UUID            = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
         private const val RSSI_THRESHOLD    = -75        // dBm — lower = needs to be closer
-        private const val BEACON_TIMEOUT_MS = 10_000L   // absent if not seen for 10 s
-        private const val POLL_INTERVAL_MS  = 3_000L    // status refresh interval
+        private const val BEACON_TIMEOUT_MS  = 10_000L  // ms without beacon → user leaving
+        private const val HEARTBEAT_MS       = 5_000L   // re-confirm presence while visible
+        private const val POLL_INTERVAL_MS   = 3_000L
         private const val PREFS_NAME        = "autolights"
+        private const val NOTIF_CHANNEL_ID  = "autolights_welcome"
+        private const val NOTIF_ID          = 1
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -47,19 +53,22 @@ class MainActivity : AppCompatActivity() {
     private var userPresent = false
     private var lastBeaconMs = 0L
     private var scanning = false
+    private var lastWelcomeTs = 0.0   // tracks the last welcome event seen
 
     // ── BLE scan callback ─────────────────────────────────────────────
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            // Any scan result means the beacon is reachable — refresh the timer
             if (result.rssi >= RSSI_THRESHOLD) {
                 lastBeaconMs = System.currentTimeMillis()
+                lastHeartbeatRssi = result.rssi
                 if (!userPresent) {
                     userPresent = true
                     reportUser(detected = true, rssi = result.rssi)
                 }
                 runOnUiThread {
-                    binding.tvBleStatus.text = "Beacon: DETECTED  (RSSI ${result.rssi} dBm)"
+                    binding.tvBleStatus.text = "Beacon: visible  (RSSI ${result.rssi} dBm)"
                 }
             }
         }
@@ -74,7 +83,7 @@ class MainActivity : AppCompatActivity() {
 
     // ── Periodic tasks ────────────────────────────────────────────────
 
-    // Marks user absent if beacon not seen within BEACON_TIMEOUT_MS
+    // Beacon not seen for BEACON_TIMEOUT_MS → user considered to have left
     private val absenceChecker = object : Runnable {
         override fun run() {
             val elapsed = System.currentTimeMillis() - lastBeaconMs
@@ -82,7 +91,7 @@ class MainActivity : AppCompatActivity() {
                 userPresent = false
                 reportUser(detected = false, rssi = 0)
                 runOnUiThread {
-                    binding.tvBleStatus.text = "Beacon: out of range"
+                    binding.tvBleStatus.text = "Beacon: lost (${BEACON_TIMEOUT_MS / 1000}s timeout)"
                 }
             }
             handler.postDelayed(this, 2_000)
@@ -96,6 +105,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Periodically re-confirms presence while the beacon is visible.
+    // Gives the RPi a heartbeat so it can time out if this app goes silent.
+    private var lastHeartbeatRssi = 0
+    private val heartbeat = object : Runnable {
+        override fun run() {
+            if (userPresent) reportUser(detected = true, rssi = lastHeartbeatRssi)
+            handler.postDelayed(this, HEARTBEAT_MS)
+        }
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,12 +125,13 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
         binding.etName.setText(prefs.getString("user_name", ""))
-        binding.etServer.setText(prefs.getString("server_url", "http://192.168.1.189:8080"))
+        binding.etServer.setText(prefs.getString("server_url", "http://10.103.27.40:8080"))
 
         binding.btnSave.setOnClickListener     { saveConfig() }
         binding.btnLightOn.setOnClickListener  { sendLightCmd(on = true) }
         binding.btnLightOff.setOnClickListener { sendLightCmd(on = false) }
 
+        createNotificationChannel()
         requestBlePermissions()
     }
 
@@ -120,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         startScanning()
         handler.post(absenceChecker)
         handler.post(statusPoller)
+        handler.post(heartbeat)
     }
 
     override fun onPause() {
@@ -127,6 +148,7 @@ class MainActivity : AppCompatActivity() {
         stopScanning()
         handler.removeCallbacks(absenceChecker)
         handler.removeCallbacks(statusPoller)
+        handler.removeCallbacks(heartbeat)
     }
 
     // ── BLE ───────────────────────────────────────────────────────────
@@ -152,7 +174,7 @@ class MainActivity : AppCompatActivity() {
 
     // ── API calls ─────────────────────────────────────────────────────
 
-    private fun serverUrl() = prefs.getString("server_url", "http://192.168.1.189:8080")!!
+    private fun serverUrl() = prefs.getString("server_url", "http://10.103.27.40:8080")!!
 
     private fun reportUser(detected: Boolean, rssi: Int) {
         val name = prefs.getString("user_name", "")?.trim() ?: return
@@ -216,6 +238,45 @@ class MainActivity : AppCompatActivity() {
         binding.tvN.text        = "Users in room: ${j.optInt("N", 0)}"
         binding.tvLux.text      = "Lux: ${"%.1f".format(j.optDouble("lux", 0.0))}"
         binding.tvLastUser.text = "Last user: ${j.optString("lastUser", "—")}"
+
+        // Show a notification if a new welcome event arrived since last poll
+        val ts = j.optDouble("lastWelcomeTs", 0.0)
+        val user = j.optString("lastWelcome", "")
+        if (ts > lastWelcomeTs && user.isNotBlank()) {
+            lastWelcomeTs = ts
+            showWelcomeNotification(user)
+        }
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIF_CHANNEL_ID,
+                "Welcome alerts",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply { description = "Shown when a user enters the room" }
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
+        }
+    }
+
+    private fun showWelcomeNotification(user: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) return
+
+        val notif = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Welcome, $user!")
+            .setContentText("User detected — lights managed automatically.")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(NOTIF_ID, notif)
     }
 
     private fun saveConfig() {
@@ -239,11 +300,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestBlePermissions() {
-        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
+        val needed = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            } else {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                add(Manifest.permission.POST_NOTIFICATIONS)
+        }.toTypedArray()
         val missing = needed.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }

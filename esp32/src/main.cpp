@@ -15,13 +15,13 @@ PubSubClient mqtt(wifiClient);
 
 // Confirmed (debounced) sensor states — published to MQTT on change
 bool doorOpen    = false;
-bool presPresent = false;
+//bool presPresent = false;
 
 // Raw (un-debounced) readings and their timestamps
 bool         doorRaw         = false;
-bool         presRaw         = false;
+//bool         presRaw         = false;
 unsigned long doorChangedAt  = 0;
-unsigned long presChangedAt  = 0;
+//unsigned long presChangedAt  = 0;
 
 // Reconnect back-off timestamps
 unsigned long mqttLastAttempt = 0;
@@ -49,7 +49,7 @@ void printStatus() {
                    mqtt.connected() ? "connected" : "disconnected",
                    MQTT_BROKER, MQTT_PORT);
     Serial.printf( "│ Door     : %s\n", doorOpen    ? "OPEN"    : "CLOSED");
-    Serial.printf( "│ Presence : %s\n", presPresent ? "PRESENT" : "ABSENT");
+    //Serial.printf( "│ Presence : %s\n", presPresent ? "PRESENT" : "ABSENT");
     Serial.printf( "│ LED D2   : %s\n", (doorOpen && mqtt.connected()) ? "ON" : "OFF");
     Serial.println("└──────────────────────────────────────────────");
 }
@@ -132,7 +132,7 @@ void connectMQTT() {
         Serial.printf("OK  (uptime %lus)\n", millis() / 1000);
         // Re-assert retained state so the coordinator is in sync
         publishDoor(doorOpen);
-        publishPresence(presPresent);
+        //publishPresence(presPresent);
     } else {
         // PubSubClient state codes: -4=timeout -3=denied -2=unavailable
         //   -1=bad protocol  1=bad client-id  2=unavailable  3=bad creds  5=unauthorised
@@ -170,7 +170,7 @@ void setup() {
 
     // Sensor pins
     pinMode(PIN_DOOR_SENSOR, INPUT_PULLUP);
-    pinMode(PIN_MMWAVE_OUT,  INPUT);
+   // pinMode(PIN_MMWAVE_OUT,  INPUT);
 
     // LEDs
     pinMode(PIN_LED_DOOR, OUTPUT);
@@ -178,9 +178,9 @@ void setup() {
 
     // Snapshot initial sensor readings so we don't publish a spurious change
     doorRaw     = (digitalRead(PIN_DOOR_SENSOR) == DOOR_OPEN_LEVEL);
-    presRaw     = (digitalRead(PIN_MMWAVE_OUT)  == HIGH);
+    //presRaw     = (digitalRead(PIN_MMWAVE_OUT)  == HIGH);
     doorOpen    = doorRaw;
-    presPresent = presRaw;
+    //presPresent = presRaw;
     updateDoorLED(); // off at boot until MQTT connects
 
     // BLE first — it takes ~500 ms to initialise and has its own scheduler
@@ -197,8 +197,8 @@ void setup() {
 
     Serial.println("[Boot] ESP32 entry/identity node ready");
     Serial.printf("       Door: %s | Presence: %s\n",
-                  doorOpen ? "OPEN" : "CLOSED",
-                  presPresent ? "PRESENT" : "ABSENT");
+                 // presPresent ? "PRESENT" : "ABSENT",
+                  doorOpen ? "OPEN" : "CLOSED");
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -241,14 +241,14 @@ void loop() {
     }
 
     // ── mmWave presence sensor (LD2410 OUT, debounce) ─────────────────
-    bool presRead = (digitalRead(PIN_MMWAVE_OUT) == HIGH);
+    /*bool presRead = (digitalRead(PIN_MMWAVE_OUT) == HIGH);
     if (presRead != presRaw) {
         presRaw       = presRead;
         presChangedAt = now;
     } else if (presRaw != presPresent && (now - presChangedAt >= DEBOUNCE_MS)) {
         presPresent = presRaw;
         if (mqtt.connected()) publishPresence(presPresent);
-    }
+    }*/
 
     delay(1);
 }

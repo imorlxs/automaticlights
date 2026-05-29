@@ -1,5 +1,6 @@
 .claude/*
 .venv/*
+esp8266/.pio/*
 esp32/.pio/*
 rpi/__pycache__/*
 android/.gradle/*

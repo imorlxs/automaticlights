@@ -2,6 +2,9 @@
 Extended Finite State Machine for the Automatic Lights coordinator.
 
 States: IDLE → DOOR_OPEN_CHECK → OCCUPIED ↔ VACATING → IDLE
+
+Presence is derived from the number of tracked users (N > 0).
+The mmWave sensor is not used.
 """
 import asyncio
 import logging
@@ -25,21 +28,22 @@ class EFSM:
         self._lux_th = lux_th
         self._id_timeout = id_timeout
 
-        # Extended state
         self.state = State.IDLE
         self.light_on = False
         self.door_open = False
         self.presence = False
         self.lux = 0.0
         self.users_inside: dict[str, bool] = {}
+        self.users_last_seen: dict[str, float] = {}
         self.last_user: Optional[str] = None
+        self.last_welcome: Optional[str] = None
+        self.last_welcome_ts: float = 0.0
 
         self._timer: Optional[asyncio.Task] = None
 
-        # Wired up by MQTTHandler after construction
-        self.on_light_cmd: Optional[Callback] = None   # on_light_cmd(on: bool)
-        self.on_welcome: Optional[Callback] = None      # on_welcome(user: str)
-        self.on_state_update: Optional[Callback] = None # on_state_update()
+        self.on_light_cmd: Optional[Callback] = None
+        self.on_welcome: Optional[Callback] = None
+        self.on_state_update: Optional[Callback] = None
 
     # ------------------------------------------------------------------
     # Public properties
@@ -47,11 +51,15 @@ class EFSM:
 
     @property
     def N(self) -> int:
-        """Number of known users currently tracked as inside the room."""
         return sum(1 for inside in self.users_inside.values() if inside)
 
+    @property
+    def presence(self) -> bool:
+        """Presence is true whenever at least one known user is inside."""
+        return self.N > 0
+
     # ------------------------------------------------------------------
-    # Event handlers (called by MQTT and API layers)
+    # Event handlers
     # ------------------------------------------------------------------
 
     async def handle_door(self, open: bool) -> None:
@@ -69,7 +77,7 @@ class EFSM:
                 self._cancel_timer()
                 self.state = State.IDLE
             elif self.state == State.VACATING:
-                if self.N == 0 and not self.presence:
+                if self.N == 0: #and not self .presence: # presence is derived from N, because sensor broken
                     await self._turn_light(False)
                     self.state = State.IDLE
                 else:
@@ -93,6 +101,9 @@ class EFSM:
 
     async def handle_lux(self, lux: float) -> None:
         self.lux = lux
+        if self.state == State.OCCUPIED and not self.light_on and lux <= self._lux_th:
+            logger.info("Lux %.1f <= %.1f while occupied — turning light on", lux, self._lux_th)
+            await self._turn_light(True)
         await self._emit_state()
 
     async def handle_user_detected(self, user: str, detected: bool) -> None:
@@ -100,16 +111,33 @@ class EFSM:
         logger.info("User '%s' detected=%s | state=%s N=%d", user, detected, self.state.value, self.N)
 
         if detected:
+            import time
+            self.users_last_seen[user] = time.time()
             self.last_user = user
-            if self.state == State.DOOR_OPEN_CHECK and self.presence:
+            if self.state == State.DOOR_OPEN_CHECK: # and self.presence:
                 await self._confirm_entry()
+            elif self.state in (State.IDLE, State.OCCUPIED, State.VACATING):
+                # User detected outside the normal door-open flow (door sensor
+                # missed the event, or BLE reported late) — still turn on.
+                if self.state != State.OCCUPIED:
+                    self.state = State.OCCUPIED
+                if not self.light_on and self.lux <= self._lux_th:
+                    await self._turn_light(True)
         else:
-            # User marked as absent
-            if self.state in (State.VACATING, State.OCCUPIED) and self.N == 0 and not self.presence and not self.door_open:
+            if self.state in (State.VACATING, State.OCCUPIED) and self.N == 0 and not self.door_open:
                 await self._turn_light(False)
                 self.state = State.IDLE
 
         await self._emit_state()
+
+    async def check_user_timeouts(self, timeout: float) -> None:
+        """Called periodically — marks users absent if no heartbeat received within timeout seconds."""
+        import time
+        now = time.time()
+        for user, last_seen in list(self.users_last_seen.items()):
+            if self.users_inside.get(user) and (now - last_seen) > timeout:
+                logger.warning("User '%s' timed out (no heartbeat for %.0fs) — marking absent", user, now - last_seen)
+                await self.handle_user_detected(user, False)
 
     async def handle_manual_on(self) -> None:
         logger.info("Manual ON | state=%s", self.state.value)
@@ -118,7 +146,7 @@ class EFSM:
 
     async def handle_manual_off(self) -> bool:
         """Returns True if the command was accepted, False if blocked."""
-        if self.N > 0 or self.presence:
+        if self.N > 0: #or self.presence:
             logger.warning("Manual OFF blocked: N=%d presence=%s", self.N, self.presence)
             return False
         logger.info("Manual OFF | state=%s", self.state.value)
@@ -127,7 +155,7 @@ class EFSM:
         return True
 
     # ------------------------------------------------------------------
-    # State snapshot for API / MQTT publishing
+    # State snapshot
     # ------------------------------------------------------------------
 
     def get_snapshot(self) -> dict:
@@ -139,6 +167,8 @@ class EFSM:
             "presence": "PRESENT" if self.presence else "ABSENT",
             "lux": self.lux,
             "lastUser": self.last_user,
+            "lastWelcome": self.last_welcome,
+            "lastWelcomeTs": self.last_welcome_ts,
         }
 
     # ------------------------------------------------------------------
@@ -146,13 +176,16 @@ class EFSM:
     # ------------------------------------------------------------------
 
     async def _confirm_entry(self) -> None:
-        """Called when both a known user AND presence are confirmed within DOOR_OPEN_CHECK."""
+        import time
         self._cancel_timer()
         self.state = State.OCCUPIED
         if self.lux <= self._lux_th:
             await self._turn_light(True)
-        if self.last_user and self.on_welcome:
-            await self.on_welcome(self.last_user)
+        if self.last_user:
+            self.last_welcome = self.last_user
+            self.last_welcome_ts = time.time()
+            if self.on_welcome:
+                await self.on_welcome(self.last_user)
 
     async def _turn_light(self, on: bool) -> None:
         self.light_on = on

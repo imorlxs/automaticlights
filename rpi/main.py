@@ -15,6 +15,13 @@ logging.basicConfig(
 )
 
 
+async def user_watchdog(efsm: EFSM) -> None:
+    """Marks users absent if the Android heartbeat stops arriving."""
+    while True:
+        await asyncio.sleep(config.USER_WATCHDOG_INTERVAL)
+        await efsm.check_user_timeouts(config.USER_TIMEOUT)
+
+
 async def main() -> None:
     efsm = EFSM(lux_th=config.LUX_TH, id_timeout=config.ID_TIMEOUT)
     mqtt = MQTTHandler(efsm)
@@ -32,6 +39,7 @@ async def main() -> None:
     await asyncio.gather(
         mqtt.run(),
         server.serve(),
+        user_watchdog(efsm),
     )
 
 

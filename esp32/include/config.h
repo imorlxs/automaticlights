@@ -1,8 +1,8 @@
 #pragma once
 
 // ── WiFi ─────────────────────────────────────────────────────────────
-#define WIFI_SSID      "UZO-3FA210"
-#define WIFI_PASSWORD  "5831332c45"
+#define WIFI_SSID      "S25 de Isaac"
+#define WIFI_PASSWORD  "IsaacMorales"
 
 // Static IP — skips DHCP negotiation, saves ~1-2 s on every boot.
 // Set to your network. Leave STATIC_IP undefined to use DHCP instead.
@@ -11,7 +11,7 @@
 //#define STATIC_SUBNET  "255.255.255.0"
 
 // ── MQTT (Raspberry Pi local IP) ─────────────────────────────────────
-#define MQTT_BROKER    "192.168.1.189"
+#define MQTT_BROKER    "10.103.27.40"
 #define MQTT_PORT      1883
 #define MQTT_CLIENT_ID "esp32-entry"
 #define MQTT_KEEPALIVE 15   // seconds
@@ -37,7 +37,7 @@
 #define PIN_MMWAVE_OUT   26
 
 // Define which level means "door is open" (change to LOW for NO switches)
-#define DOOR_OPEN_LEVEL  HIGH
+#define DOOR_OPEN_LEVEL  LOW
 
 // ── Timing ────────────────────────────────────────────────────────────
 #define DEBOUNCE_MS      50     // sensor debounce window

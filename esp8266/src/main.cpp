@@ -1,9 +1,6 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <Wire.h>
-#include <BH1750.h>
-
 #include "config.h"
 
 // ─────────────────────────────────────────────────────────────────────
@@ -12,7 +9,6 @@
 
 WiFiClient   wifiClient;
 PubSubClient mqtt(wifiClient);
-BH1750       lightMeter;
 
 bool lightOn = false;
 
@@ -113,18 +109,11 @@ void connectMQTT() {
 // ─────────────────────────────────────────────────────────────────────
 
 void sampleAndPublishLux() {
-    if (!lightMeter.measurementReady()) return;
-
-    float lux = lightMeter.readLightLevel();
-    if (lux < 0) {
-        Serial.println("[BH1750] Read error");
-        return;
-    }
-
-    char buf[16];
-    dtostrf(lux, 6, 1, buf);
+    int raw = analogRead(A0);   // 0 (dark) – 1023 (bright)
+    char buf[8];
+    itoa(raw, buf, 10);
     mqtt.publish(TOPIC_LUX, buf, /*retain=*/true);
-    Serial.printf("[MQTT] %s -> %s lux\n", TOPIC_LUX, buf);
+    Serial.printf("[MQTT] %s -> %s (raw ADC)\n", TOPIC_LUX, buf);
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -140,13 +129,9 @@ void setup() {
     pinMode(PIN_LED,   OUTPUT);
     applyLightState(false); // start with light OFF
 
-    // BH1750 lux sensor over I2C
-    Wire.begin();
-    if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
-        Serial.println("[BH1750] Initialised (continuous high-res mode)");
-    } else {
-        Serial.println("[BH1750] Not found — check wiring (SDA=D2, SCL=D1)");
-    }
+    // LDR on A0 — no initialisation needed, analogRead works out of the box
+    pinMode(A0, INPUT);
+    Serial.printf("[LDR] Initial reading: %d\n", analogRead(A0));
 
     connectWiFi();
     mqtt.setServer(MQTT_BROKER, MQTT_PORT);

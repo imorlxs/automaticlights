@@ -1,11 +1,11 @@
 #pragma once
 
 // ── WiFi ─────────────────────────────────────────────────────────────
-#define WIFI_SSID      "YOUR_SSID"
-#define WIFI_PASSWORD  "YOUR_PASSWORD"
+#define WIFI_SSID      "S25 de Isaac"
+#define WIFI_PASSWORD  "IsaacMorales"
 
 // ── MQTT (Raspberry Pi local IP) ─────────────────────────────────────
-#define MQTT_BROKER    "192.168.1.189"
+#define MQTT_BROKER    "10.103.27.40"
 #define MQTT_PORT      1883
 #define MQTT_CLIENT_ID "esp8266-actuator"
 #define MQTT_KEEPALIVE 15
@@ -22,16 +22,16 @@
 #define PIN_RELAY       12    // D6 on D1 Mini / NodeMCU
 #define RELAY_ON_LEVEL  LOW
 
-// BH1750 lux sensor uses I2C — default pins on ESP8266:
-//   SDA = GPIO4  (D2)
-//   SCL = GPIO5  (D1)
-// No pin defines needed — Wire library uses them automatically.
+// Photoresistor (LDR) — wired as voltage divider on the only ADC pin.
+//   VCC → LDR → A0 → 10kΩ resistor → GND
+// Publishes raw ADC value 0–1023 (0 = dark, 1023 = bright).
+// Set LUX_TH in the RPi config.py to match (e.g. 600 means "room is bright enough").
 
 // Built-in LED mirrors the light state (active LOW on most ESP8266 boards)
 #define PIN_LED         LED_BUILTIN
 
 // ── Timing ────────────────────────────────────────────────────────────
-#define LUX_INTERVAL_MS  5000   // how often to sample and publish lux
+#define LUX_INTERVAL_MS  500   // how often to sample and publish lux
 #define MQTT_RETRY_MS    2000
 #define MQTT_SOCKET_TMO  3      // seconds
-#define WIFI_RETRY_MS    10000
+#define WIFI_RETRY_MS    1000
