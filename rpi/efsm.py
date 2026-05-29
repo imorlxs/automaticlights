@@ -31,7 +31,7 @@ class EFSM:
         self.state = State.IDLE
         self.light_on = False
         self.door_open = False
-        self.presence = False
+        #self.presence = False
         self.lux = 0.0
         self.users_inside: dict[str, bool] = {}
         self.users_last_seen: dict[str, float] = {}

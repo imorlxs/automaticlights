@@ -40,7 +40,8 @@
 #define DOOR_OPEN_LEVEL  LOW
 
 // ── Timing ────────────────────────────────────────────────────────────
-#define DEBOUNCE_MS      50     // sensor debounce window
-#define MQTT_RETRY_MS      2000  // ms between MQTT reconnect attempts
-#define MQTT_SOCKET_TMO       3  // seconds before a connect() attempt gives up
-#define WIFI_RETRY_MS     10000  // ms between WiFi reconnect attempts
+#define DEBOUNCE_MS         50    // sensor debounce window
+#define MQTT_RETRY_MS     2000    // ms between MQTT reconnect attempts
+#define MQTT_SOCKET_TMO      3    // seconds before a connect() attempt gives up
+#define WIFI_RETRY_MS    10000    // ms between WiFi reconnect attempts
+#define STATUS_INTERVAL_MS 5000   // ms between serial status prints

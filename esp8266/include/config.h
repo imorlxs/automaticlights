@@ -19,7 +19,7 @@
 // Relay module (most common modules are active LOW)
 //   RELAY_ON_LEVEL LOW  → relay energises on LOW  (active-low modules)
 //   RELAY_ON_LEVEL HIGH → relay energises on HIGH (active-high modules)
-#define PIN_RELAY       12    // D6 on D1 Mini / NodeMCU
+#define PIN_RELAY       14    // D5 on D1 Mini / NodeMCU
 #define RELAY_ON_LEVEL  LOW
 
 // Photoresistor (LDR) — wired as voltage divider on the only ADC pin.
